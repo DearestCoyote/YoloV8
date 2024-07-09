@@ -29,29 +29,29 @@ class ObjectTracker:
     def get_total_time(self, object_id):
         return self.object_total_times.get(object_id, 0)
 
+    # Encuentra el objeto más cercano a una posición dada
+    def find_closest_object(self, cx, cy):
+        closest_object = None
+        min_distance = float('inf')
+        for object_id, (x, y) in self.current_objects.items():
+            distance = math.sqrt((cx - x) ** 2 + (cy - y) ** 2)
+            if distance < min_distance:
+                min_distance = distance
+                closest_object = object_id
+        return closest_object
+
     # Elimina objetos que no se han visto en un periodo de tiempo
     def remove_disappeared_objects(self, current_time):
         disappeared_objects = []
         for object_id, last_seen in self.last_seen_time.items():
             if current_time - last_seen > self.disappeared_threshold:
+                total_time = self.get_total_time(object_id)
+                print(f"Object {object_id} total time: {total_time:.2f} s")
                 disappeared_objects.append(object_id)
         for object_id in disappeared_objects:
-            total_time = self.get_total_time(object_id)
-            print(f"Objeto ID {object_id} desaparecio. Tiempo total: {total_time:.2f} s")
             del self.object_timers[object_id]
             del self.last_seen_time[object_id]
             del self.current_objects[object_id]
-
-    # Encuentra el ID de un objeto basándose en la posición
-    def find_closest_object(self, cx, cy):
-        closest_id = None
-        min_distance = float('inf')
-        for object_id, (prev_cx, prev_cy) in self.current_objects.items():
-            distance = math.sqrt((prev_cx - cx) ** 2 + (prev_cy - cy) ** 2)
-            if distance < min_distance and distance < 50:  # threshold de distancia
-                min_distance = distance
-                closest_id = object_id
-        return closest_id
 
 class Yolo:
     def __init__(self):
@@ -113,7 +113,7 @@ class Yolo:
 
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                 dx, dy = cx - frame.shape[1] // 2, cy - frame.shape[0] // 2
-                distance = math.sqrt(dx ** 2 + dy ** 2)
+                distance = math.sqrt(dx * 2 + dy * 2)
 
                 object_id = self.object_tracker.find_closest_object(cx, cy)
                 if object_id is None:
@@ -161,7 +161,3 @@ class Yolo:
 
         self.cap.release()
         cv2.destroyAllWindows()
-
-# Ejecución del código
-# shop = ShopIA()
-# shop.tiendaIA(shop.cap)
