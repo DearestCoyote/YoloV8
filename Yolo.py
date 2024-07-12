@@ -2,18 +2,21 @@ import cv2
 from ultralytics import YOLO
 import math
 import time
+import sys
 
 class ObjectTracker:
     def __init__(self):
-        self.object_timers = {}  # Diccionario para almacenar los tiempos de inicio de cada objeto
-        self.object_total_times = {}  # Diccionario para almacenar los tiempos totales de cada objeto
-        self.last_seen_time = {}  # Diccionario para almacenar el último tiempo en que se vio cada objeto
-        self.disappeared_threshold = 5  # Tiempo en segundos para considerar que un objeto ha desaparecido
-        self.next_object_id = 0  # ID para el siguiente objeto
-        self.current_objects = {}  # Diccionario para almacenar las posiciones de los objetos actuales
+        # Inicialización de tu clase ObjectTracker
+        self.object_timers = {}
+        self.object_total_times = {}
+        self.last_seen_time = {}
+        self.disappeared_threshold = 5
+        self.next_object_id = 0
+        self.current_objects = {}
+        self.printed_objects = set()  # Set para almacenar los IDs de objetos ya impresos
 
-    # Actualiza el tiempo de un objeto cuando se detecta
     def update_timer(self, object_id, current_time):
+        # Método para actualizar el temporizador de un objeto
         if object_id not in self.object_timers:
             self.object_timers[object_id] = current_time
             if object_id not in self.object_total_times:
@@ -25,43 +28,47 @@ class ObjectTracker:
 
         self.last_seen_time[object_id] = current_time
 
-    # Devuelve el tiempo total que un objeto ha estado presente
     def get_total_time(self, object_id):
+        # Método para obtener el tiempo total de un objeto
         return self.object_total_times.get(object_id, 0)
 
-    # Elimina objetos que no se han visto en un periodo de tiempo
     def remove_disappeared_objects(self, current_time):
+        # Método para eliminar objetos que han desaparecido
         disappeared_objects = []
         for object_id, last_seen in self.last_seen_time.items():
             if current_time - last_seen > self.disappeared_threshold:
                 disappeared_objects.append(object_id)
         for object_id in disappeared_objects:
-            total_time = self.get_total_time(object_id)
-            print(f"Objeto ID {object_id} desaparecio. Tiempo total: {total_time:.2f} s")
+            if object_id not in self.printed_objects:
+                total_time = self.get_total_time(object_id)
+                output_text = f"Objeto ID {object_id} desapareció. Tiempo total: {total_time:.2f} s\n"
+                sys.stdout.write(output_text)  # Escribir en la salida estándar
+                self.printed_objects.add(object_id)
             del self.object_timers[object_id]
             del self.last_seen_time[object_id]
             del self.current_objects[object_id]
 
-    # Encuentra el ID de un objeto basándose en la posición
     def find_closest_object(self, cx, cy):
+        # Método para encontrar el objeto más cercano a una posición dada
         closest_id = None
         min_distance = float('inf')
         for object_id, (prev_cx, prev_cy) in self.current_objects.items():
             distance = math.sqrt((prev_cx - cx) ** 2 + (prev_cy - cy) ** 2)
-            if distance < min_distance and distance < 50:  # threshold de distancia
+            if distance < min_distance and distance < 50:
                 min_distance = distance
                 closest_id = object_id
         return closest_id
 
 class Yolo:
     def __init__(self):
-        self.cap = cv2.VideoCapture(0)  # video_path
+        # Inicialización de tu clase Yolo
+        self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            raise Exception("Cannot open camera")
+            raise Exception("No se puede abrir la cámara")
         self.cap.set(3, 1280)
         self.cap.set(4, 720)
         self.ObjectModel = YOLO('Modelos/yolov8n.onnx')
-        self.object_tracker = ObjectTracker()  # Crear instancia de ObjectTracker
+        self.object_tracker = ObjectTracker()
         self.clsObject = ['persona', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
                           'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep',
                           'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
@@ -72,10 +79,12 @@ class Yolo:
                           'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
 
     def draw_area(self, img, color, xi, yi, xf, yf):
+        # Método para dibujar un área en la imagen
         img = cv2.rectangle(img, (xi, yi), (xf, yf), color, 1, 1)
         return img
 
     def draw_text(self, img, color, text, xi, yi, size, thickness, back=False):
+        # Método para dibujar texto en la imagen
         sizetext = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, size, thickness)
         dim = sizetext[0]
         baseline = sizetext[1]
@@ -85,21 +94,26 @@ class Yolo:
         return img
 
     def draw_line(self, img, color, xi, yi, xf, yf):
+        # Método para dibujar una línea en la imagen
         img = cv2.line(img, (xi, yi), (xf, yf), color, 1, 1)
         return img
 
     def area(self, frame, xi, yi, xf, yf):
+        # Método para calcular el área de interés en la imagen
         al, an, c = frame.shape
         xi, yi = int(xi * an), int(yi * al)
         xf, yf = int(xf * an), int(yf * al)
         return xi, yi, xf, yf
 
     def prediction_model(self, clean_frame, frame, model):
+        # Método para realizar predicciones y actualizar objetos
         bbox = []
         cls = 0
         results = model(clean_frame, stream=True, verbose=False)
         current_time = time.time()
-
+        text_obj2 = 0
+        id_objeto = []
+        total_time = 0
         for res in results:
             boxes = res.boxes
             for box in boxes:
@@ -133,11 +147,14 @@ class Yolo:
                 total_time = self.object_tracker.get_total_time(object_id)
                 text_time = f"{object_id} - {total_time:.2f} s"
                 frame = self.draw_text(frame, (0, 0, 255), text_time, x1, y1 + 20, size_obj, thickness_obj, back=True)
+                text_obj2 = text_obj
+                id_objeto = cls
+                total_time2 = total_time
 
-        self.object_tracker.remove_disappeared_objects(current_time)
         return frame
 
     def yolo_run(self, cap):
+        # Método principal para ejecutar YOLO y procesar el flujo de video
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -156,8 +173,22 @@ class Yolo:
             frame = self.prediction_model(clean_frame, frame, self.ObjectModel)
             cv2.imshow("Yolo", frame)
 
+            self.object_tracker.remove_disappeared_objects(time.time())
+
             if t == 27:
                 break
 
         self.cap.release()
         cv2.destroyAllWindows()
+
+# Redirige la salida estándar hacia un archivo
+ruta_archivo = r"C:\tu\direccion\de\ruta\donde\guarda.txt"
+sys.stdout = open(ruta_archivo, 'w')
+
+# Crea una instancia de la clase Yolo y ejecuta el método yolo_run
+yolo = Yolo()
+yolo.yolo_run(yolo.cap)
+
+# Restaura la salida estándar al valor predeterminado
+sys.stdout.close()
+sys.stdout = sys.__stdout__
